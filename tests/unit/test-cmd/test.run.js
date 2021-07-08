@@ -7,6 +7,7 @@ import {assert} from 'chai';
 import sinon from 'sinon';
 
 import run from '../../../src/cmd/run';
+import {UsageError} from '../../../src/errors';
 import {
   fixturePath,
   FakeExtensionRunner,
@@ -160,12 +161,22 @@ describe('run', () => {
     }, {firefoxApp, firefoxClient});
   });
 
+  it('throws if watchFile is not an array', async () => {
+    const cmd = prepareRun();
+    await assert.isRejected(
+      cmd.run({noReload: false, watchFile: 'invalid-value.txt' }),
+      /Unexpected watchFile type/
+    );
+  });
+
   it('can watch and reload the extension', async () => {
     const cmd = prepareRun();
     const {sourceDir, artifactsDir} = cmd.argv;
     const {reloadStrategy} = cmd.options;
 
-    const watchFile = fixturePath('minimal-web-ext', 'manifest.json');
+    const watchFile = [
+      fixturePath('minimal-web-ext', 'manifest.json'),
+    ];
 
     await cmd.run({noReload: false, watchFile });
     assert.equal(reloadStrategy.called, true);
@@ -406,5 +417,17 @@ describe('run', () => {
            profileCreateIfMissing: true,
          })
     );
+
+    it('throws error when used without firefox-profile or chromium-profile',
+       async () => {
+         const cmd = prepareRun();
+         const promise = cmd.run({ profileCreateIfMissing: true });
+
+         await assert.isRejected(promise, UsageError);
+         await assert.isRejected(
+           promise,
+           /requires --firefox-profile or --chromium-profile/
+         );
+       });
   });
 });

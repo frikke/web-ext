@@ -42,7 +42,7 @@ development more awesome by contributing to the `web-ext` tool. Here are links t
 
 If you're looking for a small task to work on so you can get familiar with the
 process of contributing patches, have a read through these
-[good first bugs](https://github.com/mozilla/web-ext/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+bug%22).
+[good first bugs](https://github.com/mozilla/web-ext/issues?q=is%3Aissue+is%3Aopen+label%3A%22contrib%3A+good+first+bug%22).
 
 If you'd like to work on a bug, please comment on it to let the maintainers know. If someone else has already commented and taken up that bug, please refrain from working on it and submitting a PR without asking the maintainers as it leads to unnecessary duplication of effort.
 
@@ -79,7 +79,7 @@ description. For example, if the test you'd like to run is defined in
 `tests/test.program.js` and is described as
 "turns sourceDir into an absolute path" then you could run it like this:
 
-    ./node_modules/.bin/mocha -r babel-core/register tests/unit/test.program.js -f "sourceDir"
+    ./node_modules/.bin/mocha -r @babel/register tests/unit/test.program.js -f "sourceDir"
 
 ### Debug a test
 
@@ -88,7 +88,7 @@ directly invoking the `mocha` executable with the `debug` command. For example,
 if the test you want to debug is defined in `tests/test.program.js` then you
 could enter the debugger like this:
 
-    ./node_modules/.bin/mocha debug -r babel-core/register tests/unit/test.program.js
+    ./node_modules/.bin/mocha debug -r @babel/register tests/unit/test.program.js
 
 You could also put the `debugger` statement somewhere in the code to set a
 breakpoint.
@@ -312,7 +312,7 @@ so as not to disturb any real `addons.mozilla.org` data.
 
   ````
   web-ext sign --api-key user:123 --api-secret abc1234 \
-      --api-url-prefix https://addons-dev.allizom.org/api/v3
+      --api-url-prefix https://addons-dev.allizom.org/api/v4
   ````
 * Signed add-ons created with the development API are hard to install into
   Firefox. If you need to test installation of add-ons (you probably don't)

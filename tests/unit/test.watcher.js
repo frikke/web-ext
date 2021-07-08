@@ -6,13 +6,14 @@ import {it, describe} from 'mocha';
 import {fs} from 'mz';
 import sinon from 'sinon';
 import {assert} from 'chai';
+import Watchpack from 'watchpack';
 
 import {default as onSourceChange, proxyFileChanges} from '../../src/watcher';
 import {withTempDir} from '../../src/util/temp-dir';
 import { makeSureItFails } from './helpers';
 
 type AssertWatchedParams = {
-  watchFile?: string,
+  watchFile?: Array<string>,
   touchedFile: string,
 }
 
@@ -22,15 +23,15 @@ describe('watcher', () => {
     watchFile,
     touchedFile,
   }: AssertWatchedParams = {}) => withTempDir(
-    (tmpDir) => {
+    async (tmpDir) => {
       const artifactsDir = path.join(tmpDir.path(), 'web-ext-artifacts');
       const someFile = path.join(tmpDir.path(), touchedFile);
 
       if (watchFile) {
-        watchFile = path.join(tmpDir.path(), watchFile);
+        watchFile = watchFile.map((f) => path.join(tmpDir.path(), f));
       }
 
-      var resolveChange;
+      let resolveChange;
       const whenFilesChanged = new Promise((resolve) => {
         resolveChange = resolve;
       });
@@ -38,57 +39,56 @@ describe('watcher', () => {
         resolveChange();
       });
 
-      let watchedFilePath;
-      let watchedDirPath;
+      await fs.writeFile(someFile, '<contents>');
+      const watcher = onSourceChange({
+        sourceDir: tmpDir.path(),
+        watchFile,
+        artifactsDir,
+        onChange,
+        shouldWatchFile: () => true,
+      });
 
-      return fs.writeFile(someFile, '<contents>')
-        .then(() => {
-          return onSourceChange({
-            sourceDir: tmpDir.path(),
-            watchFile,
-            artifactsDir,
-            onChange,
-            shouldWatchFile: () => true,
-          });
-        })
-        .then((watcher) => {
-          const watchedFile = watcher.fileWatchers[0];
-          const watchedDir = watcher.dirWatchers[0];
+      // $FlowIgnore: retrieve internal Watchpack properties for testing purpose.
+      const {fileWatchers, directoryWatchers} = watcher;
+      let watchedFile;
+      let watchedDir;
 
-          watchedFilePath = watchedFile && watchedFile.path;
-          watchedDirPath = watchedDir && watchedDir.path;
+      if (fileWatchers?.size > 0) {
+        watchedFile = Array.from(fileWatchers.values())[0];
+      }
 
-          return watcher;
-        })
-        .then((watcher) => {
-          return fs.utimes(someFile, Date.now() / 1000, Date.now() / 1000)
-            .then(() => watcher);
-        }).then((watcher) => {
-          const assertParams = {
-            onChange,
-            watchedFilePath,
-            watchedDirPath,
-            tmpDirPath: tmpDir.path(),
-          };
+      if (directoryWatchers?.size > 0) {
+        watchedDir = Array.from(directoryWatchers.values())[0];
+      }
 
-          return Promise.race([
-            whenFilesChanged
-              .then(() => {
-                watcher.close();
-                // This delay seems to avoid stat errors from the watcher
-                // which can happen when the temp dir is deleted (presumably
-                // before watcher.close() has removed all listeners).
-                return new Promise((resolve) => {
-                  setTimeout(resolve, 2, assertParams);
-                });
-              }),
-            // Time out if no files are changed
-            new Promise((resolve) => setTimeout(() => {
-              watcher.close();
-              resolve(assertParams);
-            }, 500)),
-          ]);
-        });
+      const watchedFilePath = watchedFile && watchedFile.path;
+      const watchedDirPath = watchedDir && watchedDir.path;
+
+      await fs.utimes(someFile, Date.now() / 1000, Date.now() / 1000);
+      const assertParams = {
+        onChange,
+        watchedFilePath,
+        watchedDirPath,
+        tmpDirPath: tmpDir.path(),
+      };
+
+      return Promise.race([
+        whenFilesChanged
+          .then(() => {
+            watcher.close();
+            // This delay seems to avoid stat errors from the watcher
+            // which can happen when the temp dir is deleted (presumably
+            // before watcher.close() has removed all listeners).
+            return new Promise((resolve) => {
+              setTimeout(resolve, 2, assertParams);
+            });
+          }),
+        // Time out if no files are changed
+        new Promise((resolve) => setTimeout(() => {
+          watcher.close();
+          resolve(assertParams);
+        }, 500)),
+      ]);
     }
   );
 
@@ -115,7 +115,7 @@ describe('watcher', () => {
         watchedDirPath,
         tmpDirPath,
       } = await watchChange({
-        watchFile: 'foo.txt',
+        watchFile: ['foo.txt'],
         touchedFile: 'foo.txt',
       });
 
@@ -131,7 +131,7 @@ describe('watcher', () => {
         watchedDirPath,
         tmpDirPath,
       } = await watchChange({
-        watchFile: 'bar.txt',
+        watchFile: ['bar.txt'],
         touchedFile: 'foo.txt',
       });
 
@@ -142,7 +142,7 @@ describe('watcher', () => {
 
     it('throws error if a non-file is passed into --watch-file', () => {
       return watchChange({
-        watchFile: '/',
+        watchFile: ['/'],
         touchedFile: 'foo.txt',
       }).then(makeSureItFails()).catch((error) => {
         assert.match(
@@ -206,4 +206,58 @@ describe('watcher', () => {
 
   });
 
+  describe('--watch-ignored is passed in', () => {
+    it('does not call onChange if ignored file is touched', () =>
+      withTempDir(async (tmpDir) => {
+        const debounceTime = 10;
+        const onChange = sinon.spy();
+        const tmpPath = tmpDir.path();
+        const files = ['foo.txt', 'bar.txt', 'foobar.txt'].map(
+          (filePath) => path.join(tmpPath, filePath)
+        );
+
+        const watcher = onSourceChange({
+          sourceDir: tmpPath,
+          artifactsDir: path.join(tmpPath, 'web-ext-artifacts'),
+          onChange,
+          watchIgnored: ['foo.txt'].map(
+            (filePath) => path.join(tmpPath, filePath)
+          ),
+          shouldWatchFile: (filePath) => filePath !== tmpPath,
+          debounceTime,
+        });
+
+        const watchAll = new Watchpack();
+        watchAll.watch({files, directories: [], missing: [], startTime: 0});
+
+        async function waitDebounce() {
+          await new Promise((resolve) => setTimeout(resolve, debounceTime * 2));
+        }
+
+        async function assertOnChange(filePath, expectedCallCount) {
+          const promiseOnChanged = new Promise((resolve) => watchAll.once(
+            'change',
+            (f) => resolve(f))
+          );
+          await waitDebounce();
+          await fs.writeFile(filePath, '<content>');
+          assert.equal(filePath, await promiseOnChanged);
+          await waitDebounce();
+          sinon.assert.callCount(onChange, expectedCallCount);
+        }
+
+        // Verify foo.txt is being ignored.
+        await assertOnChange(files[0], 0);
+
+        // Verify that the other two files are not be ignored.
+        await assertOnChange(files[1], 1);
+        await assertOnChange(files[2], 2);
+
+        watcher.close();
+        watchAll.close();
+        // Leave watcher.close some time to complete its cleanup before withTempDir will remove the
+        // test directory.
+        await waitDebounce();
+      }));
+  });
 });

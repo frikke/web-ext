@@ -11,6 +11,7 @@ import {
 } from '../firefox/remote';
 import {createLogger} from '../util/logger';
 import defaultGetValidatedManifest from '../util/manifest';
+import {UsageError} from '../../src/errors';
 import {
   createExtensionRunner,
   defaultReloadStrategy,
@@ -37,7 +38,8 @@ export type CmdRunParams = {|
   noReload: boolean,
   preInstall: boolean,
   sourceDir: string,
-  watchFile?: string,
+  watchFile?: Array<string>,
+  watchIgnored?: Array<string>,
   startUrl?: Array<string>,
   target?: Array<string>,
   args?: Array<string>,
@@ -83,6 +85,7 @@ export default async function run(
     preInstall = false,
     sourceDir,
     watchFile,
+    watchIgnored,
     startUrl,
     target,
     args,
@@ -116,6 +119,11 @@ export default async function run(
     noReload = true;
   }
 
+  if (watchFile != null && (!Array.isArray(watchFile) ||
+      !watchFile.every((el) => typeof el === 'string'))) {
+    throw new UsageError('Unexpected watchFile type');
+  }
+
   // Create an alias for --pref since it has been transformed into an
   // object containing one or more preferences.
   const customPrefs = pref;
@@ -123,7 +131,13 @@ export default async function run(
 
   const profileDir = firefoxProfile || chromiumProfile;
 
-  if (profileCreateIfMissing && profileDir) {
+  if (profileCreateIfMissing) {
+    if (!profileDir) {
+      throw new UsageError(
+        '--profile-create-if-missing requires ' +
+        '--firefox-profile or --chromium-profile'
+      );
+    }
     const isDir = fs.existsSync(profileDir);
     if (isDir) {
       log.info(`Profile directory ${profileDir} already exists`);
@@ -241,6 +255,7 @@ export default async function run(
       extensionRunner,
       sourceDir,
       watchFile,
+      watchIgnored,
       artifactsDir,
       ignoreFiles,
       noInput,

@@ -37,9 +37,10 @@ describe('web-ext sign', () => {
 
   beforeEach(() => {
     return new Promise((resolve, reject) => {
-      fakeServerProcess = spawn(process.execPath, [fakeServerPath]);
-      fakeServerProcess.stdout.on('data', resolve);
-      fakeServerProcess.stderr.on('data', reject);
+      const newProcess = spawn(process.execPath, [fakeServerPath]);
+      newProcess.stdout.on('data', resolve);
+      newProcess.stderr.on('data', reject);
+      fakeServerProcess = newProcess;
     });
   });
 
@@ -54,7 +55,7 @@ describe('web-ext sign', () => {
      () => withTempAddonDir({addonPath: minimalAddonPath}, (srcDir, tmpDir) => {
        const argv = [
          'sign', '--verbose',
-         '--api-url-prefix', 'http://localhost:8989/fake/api/v3',
+         '--api-url-prefix', 'http://localhost:8989/fake/api/v4',
          '--api-key', 'FAKEAPIKEY', '--api-secret', 'FAKEAPISECRET',
          '--source-dir', srcDir,
        ];
@@ -85,7 +86,7 @@ describe('web-ext sign', () => {
          JSON.stringify({
            webExt: {
              sign: {
-               apiUrlPrefix: 'http://localhost:8989/fake/api/v3',
+               apiUrlPrefix: 'http://localhost:8989/fake/api/v4',
              },
              sourceDir: srcDir,
            },

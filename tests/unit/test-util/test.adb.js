@@ -13,6 +13,7 @@ import {
 import ADBUtils, {
   ARTIFACTS_DIR_PREFIX,
   DEVICE_DIR_BASE,
+  listADBDevices, listADBFirefoxAPKs,
 } from '../../../src/util/adb';
 import {
   consoleStream, // instance is imported to inspect logged messages
@@ -532,7 +533,7 @@ describe('utils/adb', () => {
 
       const result = await assert.isFulfilled(promise);
 
-      assert.match(result, /^\/sdcard\/web-ext-artifacts-/);
+      assert.match(result, /^\/data\/local\/tmp\/web-ext-artifacts-/);
 
       sinon.assert.calledTwice(adb.fakeADBClient.shell);
       sinon.assert.calledWithMatch(
@@ -556,7 +557,8 @@ describe('utils/adb', () => {
          const adbUtils = new ADBUtils({adb});
 
          // Add an artifact dir to the adbUtils internal map.
-         const fakeArtifactsDir = '/sdcard/web-ext-artifacts-already-created';
+         const fakeArtifactsDir =
+           '/data/local/tmp/web-ext-artifacts-already-created';
          adbUtils.artifactsDirMap.set('device1', fakeArtifactsDir);
 
          const promise = adbUtils.getOrCreateArtifactsDir('device1');
@@ -576,7 +578,7 @@ describe('utils/adb', () => {
         },
         testFn: (adbUtils) => {
           adbUtils.artifactsDirMap.set(
-            'device1', '/sdcard/webext-artifacts-fake'
+            'device1', '/data/local/tmp/webext-artifacts-fake'
           );
           return adbUtils.clearArtifactsDir('device1');
         },
@@ -585,7 +587,7 @@ describe('utils/adb', () => {
       sinon.assert.calledOnce(adb.fakeADBClient.shell);
       sinon.assert.calledWithMatch(
         adb.fakeADBClient.shell, 'device1',
-        ['rm', '-rf', '/sdcard/webext-artifacts-fake']
+        ['rm', '-rf', '/data/local/tmp/webext-artifacts-fake']
       );
     });
 
@@ -600,7 +602,10 @@ describe('utils/adb', () => {
       });
       const adbUtils = new ADBUtils({adb});
 
-      adbUtils.artifactsDirMap.set('device1', '/sdcard/webext-artifacts-fake');
+      adbUtils.artifactsDirMap.set(
+        'device1',
+        '/data/local/tmp/webext-artifacts-fake'
+      );
       const promise = adbUtils.clearArtifactsDir('device1');
 
       await assert.isFulfilled(promise);
@@ -608,7 +613,7 @@ describe('utils/adb', () => {
       sinon.assert.calledOnce(adb.fakeADBClient.shell);
       sinon.assert.calledWithMatch(
         adb.fakeADBClient.shell, 'device1',
-        ['rm', '-rf', '/sdcard/webext-artifacts-fake']
+        ['rm', '-rf', '/data/local/tmp/webext-artifacts-fake']
       );
     });
 
@@ -932,6 +937,52 @@ describe('utils/adb', () => {
           }],
           wait: true,
         }
+      );
+    });
+
+    async function testReferenceBrowserApkComponent(
+      firefoxApkComponent?: string, expectedApkComponent: string
+    ) {
+      const adb = getFakeADBKit({
+        adbClient: {
+          startActivity: sinon.spy(() => Promise.resolve()),
+        },
+        adbkitUtil: {
+          readAll: sinon.spy(() => Promise.resolve(Buffer.from('\n'))),
+        },
+      });
+      const adbUtils = new ADBUtils({adb});
+      const apkName = 'org.mozilla.reference.browser';
+      const component = `${apkName}/${apkName}.${expectedApkComponent}`;
+      const promise = adbUtils.startFirefoxAPK(
+        'device1',
+        apkName,
+        firefoxApkComponent,
+        '/fake/custom/profile/path',
+      );
+
+      await assert.isFulfilled(promise);
+      sinon.assert.calledOnce(adb.fakeADBClient.startActivity);
+      sinon.assert.calledWithMatch(
+        adb.fakeADBClient.startActivity, 'device1', {
+          action: 'android.activity.MAIN',
+          component,
+          extras: [{
+            key: 'args',
+            value: '-profile /fake/custom/profile/path',
+          }],
+          wait: true,
+        }
+      );
+    }
+
+    it('start reference browser without APK component', () => {
+      return testReferenceBrowserApkComponent(undefined, 'BrowserActivity');
+    });
+
+    it('start reference browser with custom APK component', () => {
+      return testReferenceBrowserApkComponent(
+        'CustomActivity', 'CustomActivity'
       );
     });
 
@@ -1261,6 +1312,33 @@ describe('utils/adb', () => {
         adb.fakeADBClient.forward,
         'device1', 'local:fake', 'remote:fake'
       );
+    });
+  });
+
+  describe('exports exposed in util.adb', () => {
+    it('should export a listADBDevices method', async () => {
+      const stubDiscoverDevices = sinon.stub(
+        ADBUtils.prototype, 'discoverDevices'
+      );
+      stubDiscoverDevices.resolves(['emulator1', 'device2']);
+      const promise = listADBDevices();
+      const devices = await assert.isFulfilled(promise);
+      assert.deepEqual(devices, ['emulator1', 'device2']);
+    });
+
+    it('should export a listADBFirefoxAPKs method', async () => {
+      const stubDiscoverInstalledFirefoxAPKs = sinon.stub(
+        ADBUtils.prototype, 'discoverInstalledFirefoxAPKs'
+      );
+      stubDiscoverInstalledFirefoxAPKs
+        .resolves(['package1', 'package2', 'package3']);
+      const promise = listADBFirefoxAPKs('device1');
+      const packages = await assert.isFulfilled(promise);
+      sinon.assert.calledWith(
+        stubDiscoverInstalledFirefoxAPKs,
+        'device1'
+      );
+      assert.deepEqual(packages, ['package1', 'package2', 'package3']);
     });
   });
 
